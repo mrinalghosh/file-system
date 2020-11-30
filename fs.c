@@ -55,7 +55,6 @@ int make_fs(char *disk_name) {
     block_write(fs_.dir_idx, buffer);
 
     free(buffer);
-    mounted = true;
     close_disk(disk_name);  // TODO: need to close disk after writing?
 
     return 0;
@@ -69,10 +68,57 @@ int mount_fs(char *disk_name) {
     // fs = calloc(1, sizeof(superblock_t)); // don't need to dynamically allocate - should super block be static then?
     DIR = calloc(MAX_FILES, sizeof(dir_entry_t));
     FAT = calloc(DISK_BLOCKS, sizeof(short));
+
     char *buffer = calloc(1, BLOCK_SIZE);
+
+    /* mount super block */
+    block_read(0, buffer);
+    memcpy((void *)&fs, (void *)buffer, sizeof(superblock_t));
+
+    /* mount DIR */
+    // int i;
+    // for (i = 0; i < MAX_FILES; ++i) {  // # DIR blocks is 1 - don't need to iterate
+    memcpy((void *)(DIR), (void *)(buffer), BLOCK_SIZE);
+    // }
+
+    /* mount FAT */
+    int i;
+    for (i = 0; i < fs.fat_len; ++i) {
+        block_read(fs.fat_idx + i, buffer);
+        memcpy((void *)(FAT + i * BLOCK_SIZE), (void *)buffer, BLOCK_SIZE);  // can just copy entire block since it is a scalar multiple
+    }
+
+    free(buffer);
+    mounted = true;
+
+    // TODO: SHOULD RETURN ZERO IF DOESN'T CONTAIN A VALID FILE SYSTEM - what to check for?
+
+    return 0;
 }
 
 int umount_fs(char *disk_name) {
+    char *buffer = calloc(1, BLOCK_SIZE);
+
+    /* write back superblock */
+    memcpy((void *)buffer, (void *)&fs, sizeof(superblock_t));
+    block_write(0, buffer);
+
+    /* write back DIR */
+    memcpy((void *)buffer, (void *)DIR, BLOCK_SIZE);
+    block_write(fs.dir_idx, buffer);
+
+    /* write back FAT */
+    int i;
+    for (i = 0; i < fs.fat_len; ++i) {
+        memcpy((void *)buffer, (void *)(FAT + i * BLOCK_SIZE), BLOCK_SIZE);
+        block_write(fs.fat_idx + i, buffer);
+    }
+
+    if (close_disk(disk_name) == -1) {
+        return -1;
+    }
+
+    return 0;
 }
 
 // int fs_open(char *name);
