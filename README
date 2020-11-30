@@ -1,3 +1,20 @@
-Project 5: File Systems
+
 EC440 - Introduction to Operating Systems
+Project 5: File Systems
 Mrinal Ghosh (U33402990)
+
+Description:
+
+[Sources]
+Lectures, Discussion
+
+https://www.youtube.com/watch?v=V2Gxqv3bJCk 
+https://stackoverflow.com/questions/4142745/initialize-a-string-in-c-to-empty-string
+https://www.quora.com/Do-I-need-to-typecast-a-malloc-returns-type
+
+
+[Notes]
+- doesn't rely on consecutive blocks - fragmentation no longer a problem
+- disk.c/disk.h only provide primitives to read and write entire blocks (4096 bytes)
+- directory holds entry with file name, length, and head of file
+- superblock - information where to find directory and FAT
