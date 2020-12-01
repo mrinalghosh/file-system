@@ -11,7 +11,8 @@ Lectures, Discussion
 https://www.youtube.com/watch?v=V2Gxqv3bJCk 
 https://stackoverflow.com/questions/4142745/initialize-a-string-in-c-to-empty-string
 https://www.quora.com/Do-I-need-to-typecast-a-malloc-returns-type
-
+https://sourceware.org/gdb/current/onlinedocs/gdb/Arrays.html       ! Artificial Arrays in GDB
+https://stackoverflow.com/questions/32698293/assign-values-to-structure-variables/43890427          ! Compound literal struct assignment
 
 [Notes]
 - doesn't rely on consecutive blocks - fragmentation no longer a problem
