@@ -80,7 +80,7 @@ int mount_fs(char *disk_name) {
         return -1;
     }
 
-    // fs = calloc(1, sizeof(superblock_t)); // don't need to dynamically allocate - should super block be static then?
+    // fs = calloc(1, sizeof(superblock_t)); // don't need to dynamically allocate - should super block be a static  variable then?
     DIR = calloc(MAX_FILES, sizeof(dir_entry_t));
     FAT = calloc(DISK_BLOCKS, sizeof(int));
 
@@ -102,11 +102,12 @@ int mount_fs(char *disk_name) {
     }
 
     /* initialize file descriptor array for local use */
-    for (i = 0; i < MAX_FILDES; ++i) {
+    for (i = 0; i < MAX_FILDES; ++i) {  // iter over file descriptors
         fildes[i] = (fd_t){.used = false, .file = -1, .offset = 0};
     }
 
-    // free(buffer); // THIS KEEPS GIVING MUNMAP_CHUNK(): INVALID POINTER WHAT DO
+    // TODO: THIS KEEPS GIVING MUNMAP_CHUNK(): INVALID POINTER WHAT DO
+    // free(buffer);
     mounted = true;
 
     // TODO: SHOULD RETURN ZERO IF DOESN'T CONTAIN A VALID FILE SYSTEM - what to check for?
@@ -143,16 +144,34 @@ int umount_fs(char *disk_name) {
 }
 
 int fs_open(char *name) {
+    /* find first unused fd */
+    int fd_idx, fd_cnt = 0;
+    for (fd_idx = 0; fd_idx < MAX_FILDES; ++fd_idx) {  // iter over fd in fildes array
+        if (fildes[fd_idx].used == false) {            // unused fd_idx found
+            break;
+        }
+        ++fd_cnt;
+    }
+
+    if (fd_cnt == MAX_FILDES) {
+        perror("fs_open: maximum open file descriptors");
+        return -1;
+    }
+
+    /* find file in directory and populate fd */
     int i;
     for (i = 0; i < MAX_FILES; ++i) {          // iter over files in directory
-        if (strcmp(name, DIR[i].name) == 0) {  // name match
-            int j;
-            for (j = 0; j < MAX_FILDES; ++j) {  // iter over fds in fildes array
-            }
+        if (strcmp(name, DIR[i].name) == 0) {  // file DIR entry found
+            fildes[fd_idx] = (fd_t){.used = true, .file = DIR[i].head, .offset = 0};
+            ++DIR[i].ref_count;
+            break;
+        } else if (i == MAX_FILES - 1) {  // last iter and not broken out
+            perror("fs_open: filename not found");
+            return -1;
         }
     }
 
-    return 0;
+    return fd_idx;  // return file desciptor (index)
 }
 
 int fs_close(int fildes) { return 0; }
@@ -185,7 +204,7 @@ int fs_create(char *name) {
         if (FAT[head] == FREE) {
             FAT[head] = EOF;
             break;
-        } else if (head == DISK_BLOCKS - 1) {  // no free FAT blocks - hit when haven't broken out and last block not free
+        } else if (head == DISK_BLOCKS - 1) {  // no free FAT blocks - hit when not broken out and last block not free
             perror("fs_create: no free blocks");
             return -1;
         }

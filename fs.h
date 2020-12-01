@@ -5,12 +5,6 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-#define error(message)      \
-    {                       \
-        perror(message);    \
-        exit(EXIT_FAILURE); \
-    }
-
 #define MAX_FILES 64            // maximum files at any given time
 #define MAX_FILDES 32           // maximum file descriptors per file
 #define MAX_FILENAME 15         // maximum 15 character filenames

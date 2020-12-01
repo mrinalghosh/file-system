@@ -19,3 +19,4 @@ https://stackoverflow.com/questions/32698293/assign-values-to-structure-variable
 - disk.c/disk.h only provide primitives to read and write entire blocks (4096 bytes)
 - directory holds entry with file name, length, and head of file
 - superblock - information where to find directory and FAT
+- fd \in [0,31]
