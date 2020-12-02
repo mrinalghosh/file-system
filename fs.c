@@ -524,10 +524,22 @@ int fs_truncate(int fildes, off_t length) {
     /* keep blocks till length */
     int i;
     int head = DIR[idx].head;
-    for (i = 0; i < (length - 1) / BLOCK_SIZE + 1; ++i) {
+    for (i = 0; i < (length - 1) / BLOCK_SIZE; ++i) {
+        head = FAT[head];
+    }  // on last iter head is LAST block before truncation = trunc (below)
+
+    /* set first block to be truncated to EOF and free blocks after */
+    int temp = head;
+    int trunc = head;
+    while (head != EOF) {
+        temp = head;
+        head = FAT[head];
+        temp = FREE;
     }
 
+    FAT[trunc] = EOF;
+
     DIR[idx].size = length;
-    
+
     return 0;
 }
