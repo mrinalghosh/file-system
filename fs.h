@@ -50,9 +50,9 @@ int fs_delete(char *name);
 int fs_read(int fildes, void *buf, size_t nbyte);
 int fs_write(int fildes, void *buf, size_t nbyte);
 
-// int fs_get_filesize(int fildes);
-// int fs_listfiles(char ***files);
-// int fs_lseek(int fildes, off_t offset);
-// int fs_truncate(int fildes, off_t length);
+int fs_get_filesize(int fildes);
+int fs_listfiles(char ***files);
+int fs_lseek(int fildes, off_t offset);
+int fs_truncate(int fildes, off_t length);
 
 #endif /* FS_H */

@@ -13,10 +13,11 @@ https://stackoverflow.com/questions/4142745/initialize-a-string-in-c-to-empty-st
 https://www.quora.com/Do-I-need-to-typecast-a-malloc-returns-type
 https://sourceware.org/gdb/current/onlinedocs/gdb/Arrays.html       ! Artificial Arrays in GDB
 https://stackoverflow.com/questions/32698293/assign-values-to-structure-variables/43890427          ! Compound literal struct assignment
+https://stackoverflow.com/questions/16522035/allocate-memory-to-char-in-c
 
 [Notes]
 - doesn't rely on consecutive blocks - fragmentation no longer a problem
 - disk.c/disk.h only provide primitives to read and write entire blocks (4096 bytes)
 - directory holds entry with file name, length, and head of file
 - superblock - information where to find directory and FAT
-- fd \in [0,31]
+- when dealing with the number of needed blocks, b, for n bytes, can use (n-1)/b + 1
