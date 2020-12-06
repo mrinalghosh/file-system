@@ -5,14 +5,14 @@
 
 #include "disk.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 /* global variables */
-struct superblock fs;
-struct fd_t fd[MAX_FILDES];  // renamed to prevent collision with argument fildes
-int *FAT;
-struct dir_entry *DIR;
-bool mounted = false;  // TODO: is this even needed as a sanity check?
+static struct superblock fs;
+static struct fd_t fd[MAX_FILDES];  // renamed to prevent collision with argument fildes
+static int *FAT;
+static struct dir_entry *DIR;
+static bool mounted = false;  // TODO: is this even needed as a sanity check?
 
 /* EOF already defined in stdio.h as -1 */
 const int FREE = -2;  // block not allocated to file
@@ -43,7 +43,7 @@ void debug_fd(void) {
         int i;
         for (i = 0; i < MAX_FILDES; ++i) {
             if (fd[i].used == true)
-                printf("FD[%d]\n\tfile: %d\n\toffset: %d\n\t", i, fd[i].file, fd[i].offset);
+                printf("FD[%d]\n\tfile: %d\n\toffset: %d\n\n", i, fd[i].file, fd[i].offset);
         }
         printf("========================================================\n");
     }
@@ -116,8 +116,8 @@ int make_fs(char *disk_name) {
     /* block write FAT */
     for (i = 0; i < fs_.fat_len; ++i) {
         int j;
-        for (j = 0; j < BLOCK_SIZE / sizeof(int); ++j) {  // iterate over # of FAT entries in one block = 4096 / 4 = 1024
-            memcpy((void *)(buffer + j * sizeof(int)), (void *)&FREE, sizeof(int)); // mark FAT elements as all free (never touch meta < 10 tho)
+        for (j = 0; j < BLOCK_SIZE / sizeof(int); ++j) {                             // iterate over # of FAT entries in one block = 4096 / 4 = 1024
+            memcpy((void *)(buffer + j * sizeof(int)), (void *)&FREE, sizeof(int));  // mark FAT elements as all free (never touch meta < 10 tho)
         }
 
         if (block_write(fs_.fat_idx + i, buffer) == -1) {
@@ -169,14 +169,6 @@ int mount_fs(char *disk_name) {
         memcpy((void *)(FAT + i * BLOCK_SIZE / sizeof(int)), (void *)buffer, BLOCK_SIZE);  // can just copy entire block since it is a scalar multiple
     }
 
-    /* debug info  - THESE WORK */
-    // for (i = 0; i < MAX_FILES; ++i) {
-    //     if (DIR[i].used == true)
-    //         debug_dir(i);
-    // }
-    // debug_fat();
-    // debug_fd();
-
     /* initialize file descriptor array for local use */
     for (i = 0; i < MAX_FILDES; ++i) {  // iter over file descriptors
         fd[i] = (fd_t){.used = false, .file = -1, .offset = 0};
@@ -189,7 +181,7 @@ int mount_fs(char *disk_name) {
 int umount_fs(char *disk_name) {
     char *buffer = calloc(1, BLOCK_SIZE);
 
-    debug_fat(0, 32);
+    // debug_fat(0, 32);
 
     /* write back superblock */
     memcpy((void *)buffer, (void *)&fs, sizeof(superblock));
@@ -244,17 +236,20 @@ int fs_open(char *name) {
         }
     }
 
+    // debug_fd();
+
     return fd_idx;  // return file desciptor (idx)
 }
 
 int fs_close(int fildes) {
-    int i;
-    for (i = 0; i < MAX_FILES; ++i) {  // iter over directory entries
-        if (DIR[i].head == fd[fildes].file) {
-            fd[fildes] = (fd_t){.used = false, .file = -1, .offset = 0};  // unuse file descriptor
-            --DIR[i].ref_count;                                           // decrement references
-        }
+    int idx = directory_index(fildes);
+    if (idx == -1 || fd[fildes].used == false) {
+        perror("fs_close: invalid file descriptor");
+        return -1;
     }
+
+    fd[fildes] = (fd_t){.used = false, .file = -1, .offset = 0};  // free file descriptor
+    --DIR[idx].ref_count;                                         // decrement references
 
     return 0;
 }
@@ -295,9 +290,7 @@ int fs_create(char *name) {
 
     /* populate DIR entry for file */
     for (i = 0; i < MAX_FILES; ++i) {
-        // debug_dir(i);
-
-        if (DIR[i].used == false) {  // first unused entry
+        if (DIR[i].used == false) {  // use first unused entry
             DIR[i].used = true;
             strcpy(DIR[i].name, name);
             DIR[i].size = 0;
@@ -373,53 +366,18 @@ int fs_read(int fildes, void *buf, size_t nbyte) {
             perror("fs_read: block_read()");
             return -1;
         }
-        printf("Copying from block %d into buffer -- next block is %d\n", head, FAT[head]);
+        // printf("Copying from block %d into buffer -- next block is %d\n", head, FAT[head]);
         head = FAT[head];
     }
 
     memcpy(buf, (void *)(buffer + fd[fildes].offset), nbyte);
 
-    fd[fildes].offset += nbyte;
+    fd[fildes].offset += nbyte;  // implicitly increment file pointer
+
+    // printf("FS_READ ------ ");
+    debug_fd();
+
     return nbyte;
-
-    /* BLOCK BY BLOCK ATTEMPT*/
-
-    // char *buffer = calloc(1, BLOCK_SIZE); /* allocate buffer */
-
-    // // if (fd[fildes].offset % BLOCK_SIZE == 0) {  // TODO: this is different - MAYBE? - try this case when debugging
-    // // }
-
-    // /* traverse till starting block number given offset */
-    // int i;
-    // for (i = 0; i < (fd[fildes].offset - 1) / BLOCK_SIZE + 1; ++i) {  // iter over blocks till block containing end of offset
-    //     head = FAT[head];                                             // TODO: check that this works
-    // }
-
-    // /* read data starting from offset */
-    // for (i = 0; i < ((nbyte - 1) / BLOCK_SIZE + 1); ++i) {  // eg. (4096-1)/4096 + 1 = 1 -> edge cases with byte multiples of blocks are fixed
-    //     block_read(head, buffer);
-
-    //     /* CASES 1.first - 3.middle - 2.last */
-    //     if (i == 0) {
-    //         bytes += BLOCK_SIZE - fd[fildes].offset % BLOCK_SIZE;
-    //         memcpy((void *)buf, (void *)buffer, BLOCK_SIZE - (fd[fildes].offset % BLOCK_SIZE));  // last part of first block
-    //     } else if (i == nbyte / BLOCK_SIZE - 1) {                                                /* LAST */
-    //         bytes += (nbyte + fd[fildes].offset) % BLOCK_SIZE;
-    //         memcpy((void *)buf, (void *)buffer, (nbyte + fd[fildes].offset) % BLOCK_SIZE);  // first part of last block
-    //     } else {                                                                            /* MIDDLE */
-    //         bytes += BLOCK_SIZE;
-    //         memcpy((void *)buf, (void *)buffer, BLOCK_SIZE);
-    //     }
-
-    //     head = FAT[head];  // iter to next block
-
-    //     if (head == EOF) {
-    //         break;
-    //     }
-    // }
-
-    // fd[fildes].offset += bytes; /* implicitly increment 'file pointer' */
-    // return bytes;               // return number of bytes actually read
 }
 
 int fs_write(int fildes, void *buf, size_t nbyte) {
@@ -431,17 +389,14 @@ int fs_write(int fildes, void *buf, size_t nbyte) {
     int idx = directory_index(fildes);
     int head = DIR[idx].head;  // current
 
-    /* CHARACTER BASED ATTEMPT ~! */
-
     /* extend file with new blocks */
     int i;
-    for (i = 0; i < (fd[fildes].offset + nbyte - 1) / BLOCK_SIZE + 1; ++i) {  // iterate over total # of blocks needed in written file
-        if (FAT[head] == EOF) {                                               // NEXT block is end of file - extend
+    for (i = 0; i < (fd[fildes].offset + nbyte - 1) / BLOCK_SIZE; ++i) { /* iter over total blocks needed in new file */
+        if (FAT[head] == EOF) {
             /* find first free FAT block and extend by one each time */
             int j;
             for (j = fs.data_idx; j < DISK_BLOCKS; ++j) {  // iter over number of blocks in data segment
-                // printf("j=%d, FAT[j]=%d\n", j, FAT[j]);
-                if (FAT[j] == FREE) { /* next free (-2) block in fat found */
+                if (FAT[j] == FREE) {                      /* next free (-2) block in fat found */
                     FAT[head] = j;
                     FAT[j] = EOF; /* -1 */
                     // printf("FAT[head] was EOF --- found free block %d, setting FAT[head] to %d\n", j, FAT[head]);
@@ -481,89 +436,13 @@ int fs_write(int fildes, void *buf, size_t nbyte) {
         }
     }
 
-    return nbyte;
+    /* increment offset to start next operation at this point */
+    fd[fildes].offset += nbyte;
 
-    /* BLOCK BY BLOCK ATTEMPT */
+    // printf("FS_WRITE ------ ");
+    debug_fd();
 
-    // char *buffer = calloc(1, BLOCK_SIZE);
-
-    // /* extend file with # new blocks = (offset + nbyte - size) / BLOCK_SIZE + 1 */
-    // int i;
-    // for (i = 0; i < (fd[fildes].offset + nbyte - 1) / BLOCK_SIZE + 1; ++i) {  // iterate over total # of blocks needed in written file
-    //                                                                           // for (i = 0; i < (fd[fildes].offset + nbyte - 1) / BLOCK_SIZE; ++i) {  // iterate over total # of blocks needed in written file REMOVED 1
-    //     if (FAT[head] == EOF) {                                               // NEXT block is end of file - extend
-    //         /* find first free FAT block and extend by one each time */
-    //         int j;
-    //         for (j = fs.data_idx; j < DISK_BLOCKS; ++j) {  // iter over number of blocks in data segment
-    //             // printf("j=%d, FAT[j]=%d\n", j, FAT[j]);
-    //             if (FAT[j] == FREE) { /* next free (-2) block in fat found */
-    //                 FAT[head] = j;
-    //                 FAT[j] = EOF; /* -1 */
-    //                 // printf("FAT[head] was EOF --- found free block %d, setting FAT[head] to %d\n", j, FAT[head]);
-    //                 break;
-    //             } else if (j == DISK_BLOCKS - 1) {  // no free FAT blocks - hit when not broken out and last block not free
-    //                 perror("fs_write: no free blocks");
-    //                 return -1;
-    //             }
-    //         }
-    //     }
-    //     head = FAT[head];  // next
-    // }
-
-    // // debug_fat(0, 32);
-
-    // /* traverse till starting block number given offset */
-    // head = DIR[idx].head;  // reset head
-    // for (i = 0; i < (fd[fildes].offset - 1) / BLOCK_SIZE; ++i) {
-    //     head = FAT[head];
-    // }
-
-    // /* write from buffer into file block by block beginning at offset */
-    // int bytes = 0;
-    // // char *buf__ = (char *)buf;  // to be able to modify this pointer when iterating
-
-    // for (i = 0; i < (nbyte - 1) / BLOCK_SIZE + 1; ++i) {  // iter over number of blocks to be written to
-    //     /* CASES:
-    //     1. (last of) first - starting from offset
-    //     2. (first of) last
-    //     3. middle */
-    //     if (i == 0) {
-    //         if (block_read(head, buffer) == -1) { /* preserve contents of block above offset */
-    //             perror("fs_write: block_read()");
-    //             return -1;
-    //         }
-    //         memcpy((void *)(buffer + fd[fildes].offset % BLOCK_SIZE), buf, BLOCK_SIZE - (fd[fildes].offset % BLOCK_SIZE)); /* copy buffer and write to block */
-    //         bytes += BLOCK_SIZE - (fd[fildes].offset % BLOCK_SIZE);
-    //     } else if (i == (nbyte - 1) / BLOCK_SIZE) {  // TODO: case where we only write to one page
-    //         if (block_read(head, buffer) == -1) {    /* preserve contents of last block after last written */
-    //             perror("fs_write: block_read()");
-    //             return -1;
-    //         }
-    //         memcpy((void *)buffer, buf + bytes, (nbyte + fd[fildes].offset) % BLOCK_SIZE); /* copy buffer<-buf */
-    //         bytes += (nbyte + fd[fildes].offset) % BLOCK_SIZE;
-    //     } else {
-    //         memcpy((void *)buffer, buf + bytes, BLOCK_SIZE);
-    //         bytes += BLOCK_SIZE;
-    //     }
-
-    //     if (block_write(head, buffer) == -1) {  // write block
-    //         perror("fs_write: block_write()");
-    //         return -1;
-    //     }
-
-    //     head = FAT[head];  // TODO: sanity check this during debug - INCREMENT TO NEXT BLOCK
-    // }
-
-    // fd[fildes].offset += bytes;
-
-    // // TODO: bytes should be the same as nbyte if no failures, right?
-
-    // /* update file size (could be writing in the middle or end) */
-    // if (fd[fildes].offset + bytes > DIR[idx].size) {
-    //     DIR[idx].size = fd[fildes].offset + bytes;
-    // }
-
-    // return bytes;
+    return nbyte;  // TODO: this should be equal to bytes read/written right? - keep consistent with fs_read
 }
 
 int fs_get_filesize(int fildes) {
@@ -607,6 +486,10 @@ int fs_lseek(int fildes, off_t offset) {
     }
 
     fd[fildes].offset = offset;
+
+    // printf("FS_LSEEK ------ ");
+    debug_fd();
+
     return 0;
 }
 
