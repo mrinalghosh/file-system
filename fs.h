@@ -10,10 +10,6 @@
 #define MAX_FILENAME 15         // maximum 15 character filenames
 #define MAX_FILESIZE (1 << 24)  // maximum file size 16 MB = 16777216 B
 
-// #define FREE -1                 // not allocated to a file
-// #define EOF_ -2                 // end of file code
-// #define RESERVED -3             // FAT, DIR, superblock not to be overwritten
-
 /* defined in disk.h - DISK_BLOCKS 8192 - BLOCK_SIZE 4096 */
 
 typedef struct superblock {  // hardcoded to block 0
