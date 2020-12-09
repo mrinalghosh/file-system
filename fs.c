@@ -5,57 +5,17 @@
 
 #include "disk.h"
 
-#define DEBUG 0
-
 /* global variables */
 static struct superblock fs;
 static struct fd_t fd[MAX_FILDES];  // renamed to prevent collision with argument fildes
 static int *FAT;
 static struct dir_entry *DIR;
-static bool mounted = false;  // TODO: is this even needed as a sanity check?
+static bool mounted = false;
 
 /* EOF already defined in stdio.h as -1 */
 const int FREE = -2;  // block not allocated to file
 
-void debug_dir(int n) {
-    if (DEBUG) {
-        printf("\nDIR entry %d\n---------8<--------\nused:%d\nfilename:%s\nsize:%d\nhead:%d\nref_count:%d\n===================\n",
-               n, DIR[n].used, DIR[n].name, DIR[n].size, DIR[n].head, DIR[n].ref_count);
-    }
-}
-
-void debug_fat(int start, int end) {
-    if (DEBUG) {
-        printf("FAT\n------------------------8<---------------------\n");
-        int i, j, n = 8;
-        for (i = start; i < end / n + 1; ++i) {
-            for (j = 0; j < n; ++j)
-                printf("%d:%d  ", i * n + j, FAT[i * n + j]);
-            printf("\n");
-        }
-        printf("==============================================\n");
-    }
-}
-
-void debug_fd(void) {
-    if (DEBUG) {
-        printf("File Descriptors\n------------------------8<------------------------\n");
-        int i;
-        for (i = 0; i < MAX_FILDES; ++i) {
-            if (fd[i].used == true)
-                printf("FD[%d]\n\tfile: %d\n\toffset: %d\n\n", i, fd[i].file, fd[i].offset);
-        }
-        printf("========================================================\n");
-    }
-}
-
-void debug_fildes(int fildes) {
-    if (DEBUG) {
-        printf("FD[%d]\n\tfile: %d\n\toffset: %d\n\t", fildes, fd[fildes].file, fd[fildes].offset);
-    }
-}
-
-int directory_index(int fildes) {
+static int directory_index(int fildes) {
     int idx;
     for (idx = 0; idx < MAX_FILES; ++idx) {
         if (DIR[idx].used == true && DIR[idx].head == fd[fildes].file) {
@@ -66,12 +26,6 @@ int directory_index(int fildes) {
 }
 
 int make_fs(char *disk_name) {
-    /* DO NOT NEED TO DO THIS */
-    // if (open_disk(disk_name) != -1) { /* check for disk with same name */
-    //     perror("make_fs: disk already exists");
-    //     return -1;
-    // }
-
     if (make_disk(disk_name) == -1) { /* make disk */
         perror("make_fs: make_disk");
         return -1;
@@ -91,7 +45,7 @@ int make_fs(char *disk_name) {
     fs_.data_idx = fs_.fat_idx + fs_.fat_len;                        // 2 + 8 = 10 | SAVE SPACE BY BEGINNING DATA SEGMENT AFTER FAT AND DIR = fs_.dir_idx+fs_.dir_len
 
     /* copy meta-information to disk blocks */
-    char *buffer = calloc(1, BLOCK_SIZE);  // temporary buffer
+    char *buffer = calloc(1, BLOCK_SIZE);
 
     /* block write super block */
     memcpy((void *)buffer, (void *)&fs_, sizeof(superblock));
@@ -126,7 +80,7 @@ int make_fs(char *disk_name) {
         }
     }
 
-    if (close_disk(disk_name) == -1) {  // TODO: do I need to close disk?
+    if (close_disk(disk_name) == -1) {
         perror("mount_fs: block_read()");
         return -1;
     }
@@ -136,7 +90,12 @@ int make_fs(char *disk_name) {
 
 int mount_fs(char *disk_name) {
     if (open_disk(disk_name) == -1) {
-        perror("mount_fs: open_disk");
+        perror("mount_fs: open_disk()");
+        return -1;
+    }
+
+    if (mounted == true) {
+        perror("mount_fs: disk already mounted");
         return -1;
     }
 
@@ -157,7 +116,7 @@ int mount_fs(char *disk_name) {
         perror("mount_fs: block_read()");
         return -1;
     }
-    memcpy((void *)(DIR), (void *)(buffer), BLOCK_SIZE);  // only 1 DIR block
+    memcpy((void *)(DIR), (void *)(buffer), BLOCK_SIZE);
 
     /* mount FAT */
     int i;
@@ -180,8 +139,6 @@ int mount_fs(char *disk_name) {
 
 int umount_fs(char *disk_name) {
     char *buffer = calloc(1, BLOCK_SIZE);
-
-    // debug_fat(0, 32);
 
     /* write back superblock */
     memcpy((void *)buffer, (void *)&fs, sizeof(superblock));
@@ -235,8 +192,6 @@ int fs_open(char *name) {
             return -1;
         }
     }
-
-    // debug_fd();
 
     return fd_idx;  // return file desciptor (idx)
 }
@@ -310,7 +265,6 @@ int fs_delete(char *name) {
     for (idx = 0; idx < MAX_FILES; ++idx) {
         if (strcmp(DIR[idx].name, name) == 0) {
             if (DIR[idx].ref_count > 0) {
-                // debug_dir(idx);
                 perror("fs_delete: open handles for file");
                 return -1;
             }
@@ -336,8 +290,6 @@ int fs_delete(char *name) {
     DIR[idx].head = -1;
     DIR[idx].ref_count = 0;
 
-    // debug_dir(idx);
-
     return 0;
 }
 
@@ -357,7 +309,6 @@ int fs_read(int fildes, void *buf, size_t nbyte) {
 
     int head = DIR[idx].head;
 
-    /* retry as a character by character operation */
     char *buffer = calloc(1, BLOCK_SIZE * ((DIR[idx].size - 1) / BLOCK_SIZE + 1));  // allocate in multiples of blocks
 
     int i;
@@ -366,17 +317,18 @@ int fs_read(int fildes, void *buf, size_t nbyte) {
             perror("fs_read: block_read()");
             return -1;
         }
-        // printf("Copying from block %d into buffer -- next block is %d\n", head, FAT[head]);
         head = FAT[head];
     }
 
     memcpy(buf, (void *)(buffer + fd[fildes].offset), nbyte);
 
-    fd[fildes].offset += nbyte;  // implicitly increment file pointer
+    if (fd[fildes].offset + nbyte > DIR[idx].size) { /* read does not out of bounds of filesize */
+        int offset = fd[fildes].offset;
+        fd[fildes].offset = DIR[idx].size;
+        return DIR[idx].size - offset;
+    }
 
-    // printf("FS_READ ------ ");
-    debug_fd();
-
+    fd[fildes].offset += nbyte;
     return nbyte;
 }
 
@@ -389,6 +341,11 @@ int fs_write(int fildes, void *buf, size_t nbyte) {
     int idx = directory_index(fildes);
     int head = DIR[idx].head;  // current
 
+    /* check if nbyte increases file size above 16MB cap */
+    if (fd[fildes].offset + nbyte > MAX_FILESIZE) {
+        nbyte = MAX_FILESIZE - fd[fildes].offset;
+    }
+
     /* extend file with new blocks */
     int i;
     for (i = 0; i < (fd[fildes].offset + nbyte - 1) / BLOCK_SIZE; ++i) { /* iter over total blocks needed in new file */
@@ -399,7 +356,6 @@ int fs_write(int fildes, void *buf, size_t nbyte) {
                 if (FAT[j] == FREE) {                      /* next free (-2) block in fat found */
                     FAT[head] = j;
                     FAT[j] = EOF; /* -1 */
-                    // printf("FAT[head] was EOF --- found free block %d, setting FAT[head] to %d\n", j, FAT[head]);
                     break;
                 } else if (j == DISK_BLOCKS - 1) {  // no free FAT blocks - hit when not broken out and last block not free
                     perror("fs_write: no free blocks");
@@ -439,10 +395,7 @@ int fs_write(int fildes, void *buf, size_t nbyte) {
     /* increment offset to start next operation at this point */
     fd[fildes].offset += nbyte;
 
-    // printf("FS_WRITE ------ ");
-    debug_fd();
-
-    return nbyte;  // TODO: this should be equal to bytes read/written right? - keep consistent with fs_read
+    return nbyte;  // corrected nbyte to maximum -- see above
 }
 
 int fs_get_filesize(int fildes) {
@@ -454,7 +407,7 @@ int fs_get_filesize(int fildes) {
     return DIR[idx].size;
 }
 
-int fs_listfiles(char ***files) { /* what possible error could this need to return -1 from? */
+int fs_listfiles(char ***files) {
     char **flist = calloc(MAX_FILES, sizeof(char *));
     int i, idx = 0;
 
@@ -466,7 +419,7 @@ int fs_listfiles(char ***files) { /* what possible error could this need to retu
         }
     }
 
-    files[idx] = NULL;
+    flist[idx] = NULL;
     *files = flist;
 
     return 0;
@@ -486,9 +439,6 @@ int fs_lseek(int fildes, off_t offset) {
     }
 
     fd[fildes].offset = offset;
-
-    // printf("FS_LSEEK ------ ");
-    debug_fd();
 
     return 0;
 }
@@ -511,11 +461,11 @@ int fs_truncate(int fildes, off_t length) {
     int head = DIR[idx].head;
     for (i = 0; i < (length - 1) / BLOCK_SIZE; ++i) {
         head = FAT[head];
-    }  // on last iter head is LAST block before truncation = trunc (below)
+    }
 
     /* set first block to be truncated to EOF and free blocks after */
     int temp;
-    int trunc = head;
+    int trunc = head; /* last block before truncation */
     while (head != EOF) {
         temp = head;
         head = FAT[head];
@@ -526,7 +476,7 @@ int fs_truncate(int fildes, off_t length) {
 
     DIR[idx].size = length;
 
-    /* truncate offsets in all open fds */
+    /* truncate offsets in all open fds ? */
 
     return 0;
 }

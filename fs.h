@@ -10,8 +10,6 @@
 #define MAX_FILENAME 15         // maximum 15 character filenames
 #define MAX_FILESIZE (1 << 24)  // maximum file size 16 MB = 16777216 B
 
-/* defined in disk.h - DISK_BLOCKS 8192 - BLOCK_SIZE 4096 */
-
 typedef struct superblock {  // hardcoded to block 0
     int dir_idx;               // head of directory
     int dir_len;               // number of blocks of directory

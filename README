@@ -1,12 +1,74 @@
-
 EC440 - Introduction to Operating Systems
 Project 5: File Systems
 Mrinal Ghosh (U33402990)
 
 Description:
+-------------------------------
 
-[Sources]
-Lectures, Discussion
+An implementation of a file system on top of a virtual disk. This library provides several APIs for basic file system calls including the creation, management, and deletion of single directory files on a virtual disk. It utilizes the provided functionality in disk.c and as such, reads and writes all data and meta-information in blocks to/from the disk.
+
+Overview:
+
+The management of the file system used several data structures stored on disk (i.e. persistent), and loaded when the disk was mounted in order to access files: 
+
+First, a 'superblock' which stored the starting block and length of the FAT and DIR segments, and start of the data segment. This was primarily referred to index and retrieve the FAT and DIR on mounting. 
+
+The FAT (file allocation table) is an array of integers the length of the number of blocks on disk. Each entry in the FAT is either (1) the next entry to be referred to, (2) FREE (block not in use) or (3) EOF (end of file). These states allow space efficient storage of the current allocations without fragmentation (albeit with wasted space within blocks).
+
+The DIR (file directory) is an array of structs describing files currently stored. Each entry contains the file name, file size, the first block of the file in the FAT and the number of references to that file (i.e. open file descriptors).
+
+Additionally, once the disk is mounted, a (temporary) file descriptor array is created to directly reference open files for operations such as reads and writes. The file descriptor maintains the directory entry of the original file as well as a 'pointer' (offset) to the position last at in the file. The index in the file descriptor array is the unique access token that accompanies calls to editing operations.
+-------------------------------
+
+
+The API calls implemented according to the specification are as below:
+-------------------------------
+
+make_fs:
+Creates a new file system with a provided name to be stored on disk. This disk is opened to initialize and write the superblock, FAT and DIR. Instead of partitioning the 8192 blocks into half for meta-information and data, only 10 blocks were allocated for the meta-information.
+
+mount_fs:
+A previously created disk is mounted and the meta-information is loaded by reading blocks specified by the superblock at block 0. The temporary file descriptors are initialized. A boolean true for 'mounted' allows only a single mount operation at a time.
+
+umount_fs:
+The currently open disk is prepared for closure by writing meta-information to their respective blocks. The close_disk function shuts the open disk. The file descriptors are lost on closure of the disk as they are not persistent.
+
+fs_open:
+The file of the name passed is opened (by checking if it exists in the DIR). If it does, the first unused file descriptor is located by checking the 'used' field, and allocated to that file. The starting block is initialized to the start of file and the offset is set to zero. The index of this file descriptor in the array is returned, and the directory entry for the file increases its reference count. If the file is not found, a value of -1 is returned. 
+
+fs_close:
+The file descriptor index passed as argument is closed, if it is open. The file descriptor is marked as unused and the reference count in the directory is decremented. If the file descriptor is invalid, -1 is returned.
+
+fs_create:
+The first unused DIR entry is located and assigned to the file name passed in. This is only the creation (not allocation) of the file and therefore the allocated size is 0 bytes, but 1 block is reserved for the start of the file, which will grow with writes. Important sanity checks here are for the maximum number of files (64) and free blocks in the disk (checked in the FAT)
+
+fs_delete:
+The file of the name passed is located in the DIR and the entry is marked as unused. Recursively going from the head of the file to the EOF, each FAT entry is marked as free. This operation fails if there are currently open file descriptors for the file (i.e. references), or the file does not exist.
+
+fs_read:
+The file referred to by the passed in descriptor is read 'nbyte' from and copied into the character buffer passed in. The position of read and write operations is dictated by the current offset value (incremented by previous reads/writes and absolutely changed by lseek). The validity of the file descriptor, nbyte (>0) are checked. If valid, we allocate the required space and read the nbyte or till the end of file, whichever is lesser. The buf passed in can then be read by the calling program for the file data. The offset of the file descriptor is corrected to point to after the last byte written. The return value on the errors described above are -1, else the lesser of nbyte and (size - offset) is returned. This is the actual number of bytes read.
+
+fs_write:
+The file referred to by the descriptor is written to from the passed in buffer, with length nbyte. The validity of the file descriptor is checked (else returns -1) and nbyte compared to the 16MB maximum file size, if so only the function only writes till the cap. Once the write can proceed, the entire number of blocks required for the file is allocated (if needed) by recursively traversing the FAT and extending the number of blocks when EOF is reached. While extending, if no free blocks are available -1 is returned. Once the extension is complete, a buffer the entire size of the file is allocated and all memory copied over from the blocks on disk. This is to ensure that information is not lost before or after the write area. The buf passed in is copied to the buffer beginning from the offset upto the end of file (16MB cap) or till nbyte. The buffer now contains all the post-write data and is written back into the respective blocks. The offset is updated to after the last byte written. The actual number of bytes written (the lesser of offset+nbyte or 16MB-offset) is returned.
+
+fs_get_filesize:
+The size of the file referred to by the file descriptor is returned. The file is located in the DIR by comparing the start block in the fildes array to the head noted in the DIR entries till a match is found. The size of this entry is returned. If the entry is not found, -1 is returned.
+
+fs_listfiles:
+A complete array of string filenames is put into the pointer to the array of strings passed in. The DIR is looped over and if the entry is used, the name is copied into a local array of strings. The strings in the array are populated in consecutive indices and all other values are set to NULL as per the specification. The char*** argument is dereferenced to point to the local array of strings. There was no foreseeable error reason for this function, since a NULL at index 0 would indicate even if there were no files on disk.
+
+fs_lseek:
+The file descriptor index is used to update the file descriptor and set the offset to an absolute position. The validity of the file descriptor and offset are checked, if so -1 is returned. Else the offset of the fd is updated and a value of 0 is returned.
+
+fs_truncate:
+The file descriptor index passed in is checked for validity. The length is checked for being within the file size. The blocks that must be kept are noted by comparing the file size to the length. Beginning with the last block before blocks to be freed, we recursively traverse the FAT and free each block that was allocated to the file until EOF. The block after this last pervious block is finally marked as the new EOF and the DIR is updated to reflect the new size of the file.
+-------------------------------
+
+
+Sources:
+-------------------------------
+
+Lectures, Discussion, Piazza
 
 https://www.youtube.com/watch?v=V2Gxqv3bJCk 
 https://stackoverflow.com/questions/4142745/initialize-a-string-in-c-to-empty-string
@@ -14,10 +76,4 @@ https://www.quora.com/Do-I-need-to-typecast-a-malloc-returns-type
 https://sourceware.org/gdb/current/onlinedocs/gdb/Arrays.html       ! Artificial Arrays in GDB
 https://stackoverflow.com/questions/32698293/assign-values-to-structure-variables/43890427          ! Compound literal struct assignment
 https://stackoverflow.com/questions/16522035/allocate-memory-to-char-in-c
-
-[Notes]
-- doesn't rely on consecutive blocks - fragmentation no longer a problem
-- disk.c/disk.h only provide primitives to read and write entire blocks (4096 bytes)
-- directory holds entry with file name, length, and head of file
-- superblock - information where to find directory and FAT
-- when dealing with the number of needed blocks, b, for n bytes, can use (n-1)/b + 1
+-------------------------------
